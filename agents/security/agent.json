@@ -1,0 +1,19 @@
+{
+  "name": "Security",
+  "role": "devops",
+  "title": "Security",
+  "icon": "shield",
+  "capabilities": "Audits exposure, firewall/VLAN rules, certificates and image CVEs",
+  "reports_to_coordinator": true,
+  "adapter": {
+    "model": "claude-sonnet-5-5",
+    "maxTurnsPerRun": 40,
+    "timeoutSec": 900,
+    "dangerouslySkipPermissions": false,
+    "extraArgs": [
+      "--allowedTools",
+      "Read,Grep,Glob,Bash(curl:*),Bash(git log:*),Bash(git diff:*),Bash(git status:*)"
+    ]
+  },
+  "heartbeat_enabled": false
+}

@@ -1,0 +1,19 @@
+{
+  "name": "IaC/GitOps",
+  "role": "engineer",
+  "title": "IaC / GitOps engineer",
+  "icon": "code",
+  "capabilities": "Maintains the three repos: Terraform, Ansible, Helm, ArgoCD manifests",
+  "reports_to_coordinator": true,
+  "adapter": {
+    "model": "claude-sonnet-5-5",
+    "maxTurnsPerRun": 40,
+    "timeoutSec": 900,
+    "dangerouslySkipPermissions": false,
+    "extraArgs": [
+      "--allowedTools",
+      "Read,Grep,Glob,Bash(curl:*),Bash(git log:*),Bash(git diff:*),Bash(git status:*)"
+    ]
+  },
+  "heartbeat_enabled": false
+}

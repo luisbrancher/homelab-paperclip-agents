@@ -1,0 +1,19 @@
+{
+  "name": "Update manager",
+  "role": "devops",
+  "title": "Update manager",
+  "icon": "zap",
+  "capabilities": "Tracks new versions of charts, images and OS packages and assesses upgrade risk",
+  "reports_to_coordinator": true,
+  "adapter": {
+    "model": "claude-haiku-4-5",
+    "maxTurnsPerRun": 40,
+    "timeoutSec": 900,
+    "dangerouslySkipPermissions": false,
+    "extraArgs": [
+      "--allowedTools",
+      "Read,Grep,Glob,Bash(curl:*),Bash(git log:*),Bash(git diff:*),Bash(git status:*)"
+    ]
+  },
+  "heartbeat_enabled": false
+}

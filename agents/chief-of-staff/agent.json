@@ -1,0 +1,16 @@
+{
+  "name": "Chief of staff",
+  "role": "ceo",
+  "title": null,
+  "icon": null,
+  "capabilities": null,
+  "reports_to_coordinator": false,
+  "adapter": {
+    "model": "claude-haiku-4-5",
+    "maxTurnsPerRun": 1000,
+    "timeoutSec": 0,
+    "dangerouslySkipPermissions": false,
+    "extraArgs": []
+  },
+  "heartbeat_enabled": false
+}
