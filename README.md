@@ -5,7 +5,7 @@ anywhere (a VM, another machine) and reused for other contexts.
 
 ```
 terraform/   Proxmox VM for Paperclip (bpg/proxmox, HCP Terraform state)
-ansible/     configures the VM: Paperclip, systemd, apply.py (playbooks pending)
+ansible/     configures the VM: Paperclip, systemd, Tailscale, apply.py
 paperclip/   the agent team definition (below)
 ```
 
@@ -40,22 +40,40 @@ cd terraform && terraform init && terraform plan && terraform apply
 terraform output ip_paperclip
 ```
 
-Installing Paperclip itself and running `apply.py` on the VM is the next step (Ansible, in homelab-infra's style).
-
 ## Ansible (configure the VM)
 
 `ansible/playbooks/paperclip.yml` (modeled on homelab-infra) sets up: qemu-guest-agent, user `paperclip`, Node 24 (NodeSource),
 Claude Code CLI, Paperclip (`onboard --bind lan` + systemd service on :3100), this repo, `paperclip/apply.py`, Node Exporter.
 
+Manual steps are listed in the step by step below (Claude Code login is interactive).
+
+### Vault (Tailscale auth key)
+
+`ansible/group_vars/all/vault.yml` holds `tailscale_auth_key` (Ansible Vault, same format as homelab-infra).
+Generate a reusable auth key in the Tailscale admin (Settings, Keys), then:
+
 ```
 cd ansible
-# put the VM IP in inventory.ini (terraform output ip_paperclip)
-ansible-galaxy collection install -r requirements.yml
-ansible-playbook site.yml
+ansible-vault create group_vars/all/vault.yml     # content: tailscale_auth_key: "tskey-auth-..."
 ```
 
-Manual steps, once (Claude Code login is interactive):
+After Tailscale is up, set `paperclip_bind: tailnet` in `group_vars/all/vars.yml` to expose Paperclip only on the tailnet (requires re-onboarding).
 
-1. `ssh debian@<ip>` then `sudo -iu paperclip claude login`
-2. Open `http://<ip>:3100`, finish onboarding and create the company named in `paperclip_company`
-3. Re-run `ansible-playbook site.yml`; the `apply.py` step only runs once the login exists
+## Step by step
+
+1. **HCP Terraform**: create the CLI-driven workspace `homelab-paperclip-agents` in org `lfck` and attach the variable set
+   `proxmox-homelab` (`pm_api_url`, `pm_api_token_id`, `pm_api_token_secret` sensitive, `ssh_public_key`).
+   Use the same execution mode as the homelab-infra workspace.
+2. **Proxmox**: make sure the Debian 13 cloud-init template `9000` (with qemu-guest-agent) exists on node `pve` and the API token has permissions.
+   Check the token: `curl -k -H "Authorization: PVEAPIToken=<id>=<secret>" https://<proxmox>:8006/api2/json/version`.
+3. **VM**: `cd terraform && terraform login && terraform init && terraform apply`, then `terraform output ip_paperclip`.
+4. **Fixed IP**: DHCP reservation for the VM's MAC in OPNsense (or set `paperclip_ipv4`/`paperclip_gateway`), then set the IP in `ansible/inventory.ini`.
+5. **Tailscale key**: create the vault file as described in the Vault section above.
+6. **Ansible**: `cd ansible && ansible-galaxy collection install -r requirements.yml && ansible-playbook site.yml --ask-vault-pass`.
+   The first run installs everything and stops short of `apply.py`, printing what is missing.
+7. **Claude Code login** (once, interactive): `ssh debian@<ip>` then `sudo -iu paperclip claude login`.
+8. **Paperclip company**: open `http://<ip>:3100`, finish onboarding and create the company named in `paperclip_company`.
+9. **Hire the agents**: re-run `ansible-playbook site.yml --ask-vault-pass`; `apply.py` now runs.
+10. **Optional**: once Tailscale is up, set `paperclip_bind: tailnet` in `ansible/group_vars/all/vars.yml` (requires re-onboarding).
+
+To change agents later: edit `paperclip/`, merge to `main`, re-run step 9 (the playbook pulls this repo and `apply.py` fixes drift).
