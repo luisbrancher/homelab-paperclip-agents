@@ -22,6 +22,9 @@ PAPERCLIP_COMPANY="homelab.luisbrancher.dev" paperclip/apply.py --check   # dry 
 PAPERCLIP_COMPANY="homelab.luisbrancher.dev" paperclip/apply.py           # apply
 ```
 
+Team (works only on tickets you assign; no heartbeat/schedules): **Chief of staff** (Haiku, routes and reports), **SRE** (Sonnet: incidents, k3s, observability,
+storage and backups; read-only `kubectl`), **Platform** (Sonnet: Terraform/Ansible/Helm/ArgoCD, upgrades and their risk), **Security** (Sonnet: exposure, firewall, TLS, CVEs).
+
 Rules: no secrets in this repo (use Paperclip secrets / agent env); agents are read-only until their access task is done.
 Coordinator is created by Paperclip onboarding; `apply.py` only syncs it.
 
@@ -73,7 +76,25 @@ After Tailscale is up, set `paperclip_bind: tailnet` in `group_vars/all/vars.yml
    The first run installs everything and stops short of `apply.py`, printing what is missing.
 7. **Claude Code login** (once, interactive): `ssh debian@<ip>` then `sudo -iu paperclip claude login`.
 8. **Paperclip company**: open `http://<ip>:3100`, finish onboarding and create the company named in `paperclip_company`.
-9. **Hire the agents**: re-run `ansible-playbook site.yml --ask-vault-pass`; `apply.py` now runs.
-10. **Optional**: once Tailscale is up, set `paperclip_bind: tailnet` in `ansible/group_vars/all/vars.yml` (requires re-onboarding).
+9. **Read-only kubeconfig for the SRE agent** (once): on k3s-node apply `ansible/files/sre-readonly-rbac.yaml`
+   (ServiceAccount bound to the built-in `view` role, which cannot read Secrets), then build a kubeconfig from its token and put it on the VM as `/home/paperclip/.kube/config` (mode 600):
+   ```
+   # on k3s-node
+   sudo k3s kubectl apply -f sre-readonly-rbac.yaml
+   TOKEN=$(sudo k3s kubectl -n kube-system get secret paperclip-sre-token -o jsonpath='{.data.token}' | base64 -d)
+   CA=$(sudo k3s kubectl -n kube-system get secret paperclip-sre-token -o jsonpath='{.data.ca\.crt}')
+   cat > kubeconfig <<EOF2
+   apiVersion: v1
+   kind: Config
+   clusters: [{name: k3s, cluster: {server: "https://10.10.10.11:6443", certificate-authority-data: "$CA"}}]
+   users: [{name: paperclip-sre, user: {token: "$TOKEN"}}]
+   contexts: [{name: k3s, context: {cluster: k3s, user: paperclip-sre}}]
+   current-context: k3s
+   EOF2
+   ```
+   Then `scp` it to the VM and check with `sudo -iu paperclip kubectl get nodes`. The Ansible run also clones homelab-infra/gitops/network into `~/homelab`
+   (a private repo needs a read-only deploy key; the playbook warns if a clone fails).
+10. **Hire the agents**: re-run `ansible-playbook site.yml --ask-vault-pass`; `apply.py` now runs.
+11. **Optional**: once Tailscale is up, set `paperclip_bind: tailnet` in `ansible/group_vars/all/vars.yml` (requires re-onboarding).
 
-To change agents later: edit `paperclip/`, merge to `main`, re-run step 9 (the playbook pulls this repo and `apply.py` fixes drift).
+To change agents later: edit `paperclip/`, merge to `main`, re-run step 10 (the playbook pulls this repo and `apply.py` fixes drift).

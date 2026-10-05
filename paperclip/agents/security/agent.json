@@ -12,7 +12,7 @@
     "dangerouslySkipPermissions": false,
     "extraArgs": [
       "--allowedTools",
-      "Read,Grep,Glob,Bash(curl:*),Bash(git log:*),Bash(git diff:*),Bash(git status:*)"
+      "Read,Grep,Glob,Bash(curl:*),Bash(git log:*),Bash(git diff:*),Bash(git status:*),Bash(git show:*),WebFetch"
     ]
   },
   "heartbeat_enabled": false

@@ -1,18 +1,18 @@
 {
   "name": "SRE",
   "role": "devops",
-  "title": "SRE / Incident triager",
+  "title": "SRE / Storage",
   "icon": "eye",
-  "capabilities": "Diagnoses incidents using Prometheus, Loki and the k3s state (read-only)",
+  "capabilities": "Diagnoses incidents and checks k3s, observability, storage and backups (read-only)",
   "reports_to_coordinator": true,
   "adapter": {
-    "model": "claude-haiku-4-5",
+    "model": "claude-sonnet-5-5",
     "maxTurnsPerRun": 40,
     "timeoutSec": 900,
     "dangerouslySkipPermissions": false,
     "extraArgs": [
       "--allowedTools",
-      "Read,Grep,Glob,Bash(curl:*),Bash(git log:*),Bash(git diff:*),Bash(git status:*)"
+      "Read,Grep,Glob,Bash(curl:*),Bash(git log:*),Bash(git diff:*),Bash(git status:*),Bash(git show:*),Bash(kubectl get:*),Bash(kubectl describe:*),Bash(kubectl logs:*),Bash(kubectl top:*)"
     ]
   },
   "heartbeat_enabled": false

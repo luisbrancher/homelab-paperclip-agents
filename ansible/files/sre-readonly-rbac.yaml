@@ -1,0 +1,28 @@
+# Read-only access for the SRE agent. `view` excludes Secrets, matching the "never read secrets" rule.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: paperclip-sre
+  namespace: kube-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: paperclip-sre-view
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: view
+subjects:
+  - kind: ServiceAccount
+    name: paperclip-sre
+    namespace: kube-system
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: paperclip-sre-token
+  namespace: kube-system
+  annotations:
+    kubernetes.io/service-account.name: paperclip-sre
+type: kubernetes.io/service-account-token

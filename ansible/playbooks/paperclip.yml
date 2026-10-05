@@ -107,6 +107,40 @@
         update: true
       become_user: "{{ paperclip_user }}"
 
+    # homelab repos the agents work on (read-only HTTPS clones, no push credentials on the VM)
+    - name: Clone homelab repos into the agents working directory
+      ansible.builtin.git:
+        repo: "https://github.com/luisbrancher/{{ item }}.git"
+        dest: "{{ paperclip_agents_cwd }}/{{ item }}"
+        version: main
+        update: true
+      become_user: "{{ paperclip_user }}"
+      loop: "{{ paperclip_homelab_repos }}"
+      register: homelab_repos
+      failed_when: false
+
+    - name: Warn about repos that could not be cloned (private repos need a read-only deploy key)
+      ansible.builtin.debug:
+        msg: "Could not clone {{ item.item }}: {{ item.msg | default('unknown error') }}"
+      loop: "{{ homelab_repos.results }}"
+      when: item.failed | default(false)
+
+    # kubectl (read-only access for the SRE agent; kubeconfig is placed by hand, see README)
+    - name: Install kubectl
+      ansible.builtin.shell:
+        cmd: |
+          v=$(curl -fsSL https://dl.k8s.io/release/stable.txt)
+          curl -fsSLo /usr/local/bin/kubectl https://dl.k8s.io/release/$v/bin/linux/amd64/kubectl
+          chmod 0755 /usr/local/bin/kubectl
+        creates: /usr/local/bin/kubectl
+
+    - name: Create .kube directory
+      ansible.builtin.file:
+        path: "/home/{{ paperclip_user }}/.kube"
+        state: directory
+        owner: "{{ paperclip_user }}"
+        mode: '0700'
+
     - name: Check for Claude Code login
       ansible.builtin.stat:
         path: "/home/{{ paperclip_user }}/.claude/.credentials.json"

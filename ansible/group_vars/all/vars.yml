@@ -10,3 +10,8 @@ paperclip_company: "homelab.luisbrancher.dev"
 paperclip_agents_repo: https://github.com/luisbrancher/homelab-paperclip-agents.git
 paperclip_agents_dir: "/home/{{ paperclip_user }}/homelab-paperclip-agents"
 paperclip_agents_cwd: "/home/{{ paperclip_user }}/homelab"   # AGENTS_CWD: where the agents run (clone homelab repos here)
+
+paperclip_homelab_repos:
+  - homelab-infra
+  - homelab-gitops
+  - homelab-network
