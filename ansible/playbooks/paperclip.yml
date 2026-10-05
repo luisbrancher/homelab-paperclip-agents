@@ -1,0 +1,149 @@
+---
+- name: Configure paperclip VM
+  hosts: paperclip_vm
+  become: true
+
+  pre_tasks:
+    - name: Update apt cache
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+
+  tasks:
+    # base
+    - name: Install base packages
+      ansible.builtin.apt:
+        name: [git, curl, ca-certificates, python3, qemu-guest-agent]
+        state: present
+
+    - name: Ensure qemu-guest-agent is running
+      ansible.builtin.service:
+        name: qemu-guest-agent
+        state: started
+        enabled: true
+
+    # dedicated user: runs Paperclip and owns the `claude login` session
+    - name: Create paperclip user
+      ansible.builtin.user:
+        name: "{{ paperclip_user }}"
+        shell: /bin/bash
+        create_home: true
+
+    - name: Create agents working directory
+      ansible.builtin.file:
+        path: "{{ paperclip_agents_cwd }}"
+        state: directory
+        owner: "{{ paperclip_user }}"
+        mode: '0755'
+
+    # node (NodeSource, Debian's own package is too old)
+    - name: Set up NodeSource repository
+      ansible.builtin.shell:
+        cmd: curl -fsSL https://deb.nodesource.com/setup_{{ node_major }}.x | bash -
+        creates: /etc/apt/sources.list.d/nodesource.sources
+
+    - name: Install Node.js
+      ansible.builtin.apt:
+        name: nodejs
+        state: present
+
+    # claude code CLI (used by the claude_local adapter)
+    - name: Install Claude Code CLI
+      community.general.npm:
+        name: "@anthropic-ai/claude-code"
+        global: true
+        state: latest
+
+    # paperclip
+    - name: Onboard Paperclip (creates ~/.paperclip)
+      ansible.builtin.command:
+        cmd: npx --yes paperclipai@latest onboard --yes --bind {{ paperclip_bind }}
+        creates: "/home/{{ paperclip_user }}/.paperclip"
+      become_user: "{{ paperclip_user }}"
+
+    - name: Install Paperclip systemd service
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/paperclip.service
+        mode: '0644'
+        content: |
+          [Unit]
+          Description=Paperclip
+          After=network-online.target
+          Wants=network-online.target
+
+          [Service]
+          User={{ paperclip_user }}
+          WorkingDirectory=/home/{{ paperclip_user }}
+          ExecStart=/usr/bin/npx --yes paperclipai@latest run
+          Restart=on-failure
+          RestartSec=5
+
+          [Install]
+          WantedBy=multi-user.target
+      notify: Restart paperclip
+
+    - name: Enable and start Paperclip
+      ansible.builtin.systemd:
+        name: paperclip
+        daemon_reload: true
+        state: started
+        enabled: true
+
+    - name: Wait for Paperclip API
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ paperclip_port }}/api/companies"
+        status_code: [200, 401, 403]
+      register: paperclip_up
+      retries: 12
+      delay: 5
+      until: paperclip_up.status is defined and paperclip_up.status != -1
+
+    # agents (this repo); apply.py needs `claude login` and the company created in onboarding
+    - name: Clone agents repo
+      ansible.builtin.git:
+        repo: "{{ paperclip_agents_repo }}"
+        dest: "{{ paperclip_agents_dir }}"
+        version: main
+        update: true
+      become_user: "{{ paperclip_user }}"
+
+    - name: Check for Claude Code login
+      ansible.builtin.stat:
+        path: "/home/{{ paperclip_user }}/.claude/.credentials.json"
+      register: claude_login
+
+    - name: Manual step pending (claude login)
+      ansible.builtin.debug:
+        msg: >-
+          On the VM run: sudo -iu {{ paperclip_user }} claude login
+          then create the company "{{ paperclip_company }}" in the Paperclip UI (port {{ paperclip_port }}) and re-run this playbook.
+      when: not claude_login.stat.exists
+
+    - name: Apply agent definitions
+      ansible.builtin.command:
+        cmd: python3 {{ paperclip_agents_dir }}/paperclip/apply.py
+      environment:
+        PAPERCLIP_COMPANY: "{{ paperclip_company }}"
+        AGENTS_CWD: "{{ paperclip_agents_cwd }}"
+      become_user: "{{ paperclip_user }}"
+      register: apply_agents
+      changed_when: "'hiring' in apply_agents.stdout or 'drift' in apply_agents.stdout"
+      when: claude_login.stat.exists
+
+    # monitoring
+    - name: Install Node Exporter
+      ansible.builtin.apt:
+        name: prometheus-node-exporter
+        state: present
+
+    - name: Ensure Node Exporter is running and enabled on boot
+      ansible.builtin.service:
+        name: prometheus-node-exporter
+        state: started
+        enabled: true
+
+  handlers:
+    - name: Restart paperclip
+      ansible.builtin.systemd:
+        name: paperclip
+        state: restarted

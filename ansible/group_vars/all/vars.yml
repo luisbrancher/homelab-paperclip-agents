@@ -1,0 +1,12 @@
+ansible_ssh_private_key_file: ~/.ssh/id_ed25519
+ansible_become: yes
+
+paperclip_port: 3100
+
+node_major: 24                      # Paperclip needs Node >= 24.11
+paperclip_user: paperclip
+paperclip_bind: lan                 # loopback | lan | tailnet (onboard --bind)
+paperclip_company: "homelab.luisbrancher.dev"
+paperclip_agents_repo: https://github.com/luisbrancher/homelab-paperclip-agents.git
+paperclip_agents_dir: "/home/{{ paperclip_user }}/homelab-paperclip-agents"
+paperclip_agents_cwd: "/home/{{ paperclip_user }}/homelab"   # AGENTS_CWD: where the agents run (clone homelab repos here)
