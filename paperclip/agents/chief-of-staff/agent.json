@@ -7,10 +7,13 @@
   "reports_to_coordinator": false,
   "adapter": {
     "model": "claude-haiku-4-5",
-    "maxTurnsPerRun": 1000,
-    "timeoutSec": 0,
+    "maxTurnsPerRun": 100,
+    "timeoutSec": 1800,
     "dangerouslySkipPermissions": false,
-    "extraArgs": []
+    "extraArgs": [
+      "--allowedTools",
+      "Read,Grep,Glob,Bash(curl:*)"
+    ]
   },
   "heartbeat_enabled": false
 }
