@@ -13,7 +13,7 @@
     # base
     - name: Install base packages
       ansible.builtin.apt:
-        name: [git, curl, ca-certificates, python3, qemu-guest-agent]
+        name: [git, curl, ca-certificates, python3, qemu-guest-agent, acl]  # acl: needed to become the unprivileged paperclip user
         state: present
 
     - name: Ensure qemu-guest-agent is running
