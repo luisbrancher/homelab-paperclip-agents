@@ -41,3 +41,21 @@ terraform output ip_paperclip
 ```
 
 Installing Paperclip itself and running `apply.py` on the VM is the next step (Ansible, in homelab-infra's style).
+
+## Ansible (configure the VM)
+
+`ansible/playbooks/paperclip.yml` (modeled on homelab-infra) sets up: qemu-guest-agent, user `paperclip`, Node 24 (NodeSource),
+Claude Code CLI, Paperclip (`onboard --bind lan` + systemd service on :3100), this repo, `paperclip/apply.py`, Node Exporter.
+
+```
+cd ansible
+# put the VM IP in inventory.ini (terraform output ip_paperclip)
+ansible-galaxy collection install -r requirements.yml
+ansible-playbook site.yml
+```
+
+Manual steps, once (Claude Code login is interactive):
+
+1. `ssh debian@<ip>` then `sudo -iu paperclip claude login`
+2. Open `http://<ip>:3100`, finish onboarding and create the company named in `paperclip_company`
+3. Re-run `ansible-playbook site.yml`; the `apply.py` step only runs once the login exists
