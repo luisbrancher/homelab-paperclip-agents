@@ -142,6 +142,31 @@
         state: started
         enabled: true
 
+    # tailscale (auth key comes from group_vars/all/vault.yml)
+    - name: Download and run Tailscale installation script
+      ansible.builtin.shell:
+        cmd: curl -fsSL https://tailscale.com/install.sh | sh
+        creates: /usr/bin/tailscale  # idempotent: only runs if the binary is missing
+
+    - name: Ensure Tailscale is running and enabled on boot
+      ansible.builtin.service:
+        name: tailscaled
+        state: started
+        enabled: true
+
+    - name: Check Tailscale status
+      ansible.builtin.command:
+        cmd: tailscale status
+      register: tailscale_status
+      failed_when: false
+      changed_when: false
+
+    - name: Connect to Tailscale with auth key
+      ansible.builtin.command:
+        cmd: tailscale up --authkey="{{ tailscale_auth_key }}"
+      no_log: true
+      when: tailscale_status.rc != 0
+
   handlers:
     - name: Restart paperclip
       ansible.builtin.systemd:

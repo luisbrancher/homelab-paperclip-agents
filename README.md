@@ -59,3 +59,16 @@ Manual steps, once (Claude Code login is interactive):
 1. `ssh debian@<ip>` then `sudo -iu paperclip claude login`
 2. Open `http://<ip>:3100`, finish onboarding and create the company named in `paperclip_company`
 3. Re-run `ansible-playbook site.yml`; the `apply.py` step only runs once the login exists
+
+### Vault (Tailscale auth key)
+
+`ansible/group_vars/all/vault.yml` holds `tailscale_auth_key` (Ansible Vault, same format as homelab-infra). To reuse the key from homelab-infra,
+create it with the same vault password and paste the same value:
+
+```
+cd ansible
+ansible-vault create group_vars/all/vault.yml     # content: tailscale_auth_key: "tskey-auth-..."
+ansible-playbook site.yml --ask-vault-pass
+```
+
+After Tailscale is up, set `paperclip_bind: tailnet` in `group_vars/all/vars.yml` to expose Paperclip only on the tailnet (requires re-onboarding).
