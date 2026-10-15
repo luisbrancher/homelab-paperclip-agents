@@ -4,7 +4,7 @@
   "title": "Platform (IaC / GitOps / updates)",
   "icon": "code",
   "capabilities": "Maintains the three repos (Terraform, Ansible, Helm, ArgoCD) and assesses upgrade risk",
-  "reports_to_coordinator": true,
+  "reports_to_chief_of_staff": true,
   "adapter": {
     "model": "claude-sonnet-5-5",
     "maxTurnsPerRun": 40,

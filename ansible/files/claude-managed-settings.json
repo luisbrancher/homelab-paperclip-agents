@@ -1,0 +1,36 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(**/.credentials.json)",
+      "Read(~/.claude.json)",
+      "Read(~/.paperclip/instances/*/.env)",
+      "Read(~/.paperclip/instances/*/config.json)",
+      "Read(~/.paperclip/instances/*/secrets/**)",
+      "Read(~/.paperclip/instances/*/db/**)",
+      "Read(~/.paperclip/instances/*/data/**)",
+      "Read(~/.paperclip/instances/*/logs/**)",
+      "Read(~/.kube/**)",
+      "Read(~/.ssh/**)",
+      "Read(**/.env)",
+      "Read(**/*.key)",
+      "Read(**/vault.yml)",
+      "Read(**/*.tfstate*)",
+      "Bash(curl*file:*)",
+      "Bash(curl*-d @*)",
+      "Bash(curl*--data*@*)",
+      "Bash(curl*-F *)",
+      "Bash(curl*--form*)",
+      "Bash(curl*-T *)",
+      "Bash(curl*--upload-file*)",
+      "Bash(curl*-o *)",
+      "Bash(curl*--output*)",
+      "Bash(curl*--remote-name*)",
+      "Bash(curl*-K *)",
+      "Bash(curl*--config*)",
+      "Bash(git*--output*)"
+    ]
+  },
+  "env": {
+    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1"
+  }
+}

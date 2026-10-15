@@ -1,0 +1,4 @@
+# Managed by Ansible (paperclip_egress_domains). One regex per line, matched against the host.
+{% for d in paperclip_egress_domains %}
+(^|\.){{ d | regex_escape }}$
+{% endfor %}

@@ -4,9 +4,9 @@
   "title": null,
   "icon": null,
   "capabilities": null,
-  "reports_to_coordinator": false,
+  "reports_to_chief_of_staff": false,
   "adapter": {
-    "model": "claude-haiku-4-5",
+    "model": "claude-haiku-5-5",
     "maxTurnsPerRun": 100,
     "timeoutSec": 1800,
     "dangerouslySkipPermissions": false,

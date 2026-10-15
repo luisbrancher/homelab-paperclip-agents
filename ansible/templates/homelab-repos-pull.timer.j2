@@ -1,0 +1,9 @@
+[Unit]
+Description=Fast-forward the homelab repos every {{ paperclip_repos_pull_interval }}
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec={{ paperclip_repos_pull_interval }}
+
+[Install]
+WantedBy=timers.target

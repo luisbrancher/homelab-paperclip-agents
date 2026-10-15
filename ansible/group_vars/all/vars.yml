@@ -1,11 +1,16 @@
 ansible_ssh_private_key_file: ~/.ssh/id_ed25519
 ansible_become: yes
 
-paperclip_port: 3100
-
+# pinned versions: bump on purpose, then re-run the playbook
 node_major: 24                      # Paperclip needs Node >= 24.11
+paperclip_version: "2026.1012.0"    # npm view paperclipai version
+claude_code_version: "2.1.300"      # npm view @anthropic-ai/claude-code version
+kubectl_version: "v1.37.1"          # keep within one minor of k3s (`kubectl version` on k3s-node)
+
+paperclip_port: 3100
 paperclip_user: paperclip
-paperclip_bind: lan                 # loopback | lan | tailnet (onboard --bind)
+paperclip_bind: tailnet             # loopback | lan | tailnet (onboard --bind, only read on the first onboarding)
+paperclip_allowed_hostnames: []     # extra hostnames for the UI, e.g. the MagicDNS name paperclip.<tailnet>.ts.net
 paperclip_company: "homelab.luisbrancher.dev"
 paperclip_agents_repo: https://github.com/luisbrancher/homelab-paperclip-agents.git
 paperclip_agents_dir: "/home/{{ paperclip_user }}/homelab-paperclip-agents"
@@ -15,3 +20,47 @@ paperclip_homelab_repos:
   - homelab-infra
   - homelab-gitops
   - homelab-network
+paperclip_repos_pull_interval: 15min   # systemd timer that fast-forwards the repos above
+
+# egress filter for the paperclip user (Paperclip + agents):
+# direct traffic only to loopback, DNS and the CIDRs below; everything else goes through
+# tinyproxy, which only allows the domains below (and their subdomains)
+paperclip_egress_filter: true
+paperclip_egress_cidrs:
+  - 10.10.10.0/24
+paperclip_egress_domains:
+  # Claude Code (API, login, WebFetch domain check)
+  - anthropic.com
+  - claude.ai
+  - claude.com
+  # repos and release notes
+  - github.com
+  - githubusercontent.com
+  - artifacthub.io
+  - k3s.io
+  - kubernetes.io
+  - argo-cd.readthedocs.io
+  - cert-manager.io
+  - cloudnative-pg.io
+  - immich.app
+  - nextcloud.com
+  - jellyfin.org
+  - grafana.com
+  - prometheus.io
+  - truenas.com
+  - opnsense.org
+  - tailscale.com
+  # advisories
+  - nvd.nist.gov
+  - osv.dev
+  - cve.org
+paperclip_proxy_port: 8888
+paperclip_proxy_env:
+  http_proxy: "http://127.0.0.1:{{ paperclip_proxy_port }}"
+  https_proxy: "http://127.0.0.1:{{ paperclip_proxy_port }}"
+  HTTP_PROXY: "http://127.0.0.1:{{ paperclip_proxy_port }}"
+  HTTPS_PROXY: "http://127.0.0.1:{{ paperclip_proxy_port }}"
+  no_proxy: "localhost,127.0.0.1,::1,100.64.0.0/10,{{ paperclip_egress_cidrs | join(',') }}"
+  NO_PROXY: "localhost,127.0.0.1,::1,100.64.0.0/10,{{ paperclip_egress_cidrs | join(',') }}"
+  NODE_USE_ENV_PROXY: "1"
+paperclip_env: "{{ paperclip_proxy_env if paperclip_egress_filter else {} }}"

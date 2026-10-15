@@ -1,0 +1,14 @@
+[Unit]
+Description=Egress filter for the paperclip user (nftables)
+After=network-pre.target
+Before=network-online.target paperclip.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/nft -f /etc/nftables.d/paperclip-egress.nft
+ExecReload=/usr/sbin/nft -f /etc/nftables.d/paperclip-egress.nft
+ExecStop=/usr/sbin/nft delete table inet paperclip_egress
+
+[Install]
+WantedBy=multi-user.target

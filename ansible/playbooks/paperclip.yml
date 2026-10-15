@@ -3,6 +3,10 @@
   hosts: paperclip_vm
   become: true
 
+  vars:
+    tpl_dir: "{{ playbook_dir }}/../templates"
+    files_dir: "{{ playbook_dir }}/../files"
+
   pre_tasks:
     - name: Update apt cache
       ansible.builtin.apt:
@@ -13,7 +17,7 @@
     # base
     - name: Install base packages
       ansible.builtin.apt:
-        name: [git, curl, ca-certificates, python3, qemu-guest-agent, acl]  # acl: needed to become the unprivileged paperclip user
+        name: [git, curl, ca-certificates, python3, qemu-guest-agent, acl, nftables, tinyproxy]  # acl: needed to become the unprivileged paperclip user
         state: present
 
     - name: Ensure qemu-guest-agent is running
@@ -36,147 +40,71 @@
         owner: "{{ paperclip_user }}"
         mode: '0755'
 
-    # node (NodeSource, Debian's own package is too old)
-    - name: Set up NodeSource repository
-      ansible.builtin.shell:
-        cmd: curl -fsSL https://deb.nodesource.com/setup_{{ node_major }}.x | bash -
-        creates: /etc/apt/sources.list.d/nodesource.sources
-
-    - name: Install Node.js
-      ansible.builtin.apt:
-        name: nodejs
-        state: present
-
-    # claude code CLI (used by the claude_local adapter)
-    - name: Install Claude Code CLI
-      community.general.npm:
-        name: "@anthropic-ai/claude-code"
-        global: true
-        state: latest
-
-    # paperclip
-    - name: Onboard Paperclip (creates ~/.paperclip)
-      ansible.builtin.command:
-        cmd: npx --yes paperclipai@latest onboard --yes --bind {{ paperclip_bind }}
-        creates: "/home/{{ paperclip_user }}/.paperclip"
-      become_user: "{{ paperclip_user }}"
-
-    - name: Install Paperclip systemd service
-      ansible.builtin.copy:
-        dest: /etc/systemd/system/paperclip.service
+    # egress: the paperclip user only reaches the LAN directly; the internet goes through tinyproxy (domain allowlist)
+    - name: Configure tinyproxy
+      ansible.builtin.template:
+        src: "{{ tpl_dir }}/tinyproxy.conf.j2"
+        dest: /etc/tinyproxy/tinyproxy.conf
         mode: '0644'
-        content: |
-          [Unit]
-          Description=Paperclip
-          After=network-online.target
-          Wants=network-online.target
+      notify: Restart tinyproxy
 
-          [Service]
-          User={{ paperclip_user }}
-          WorkingDirectory=/home/{{ paperclip_user }}
-          ExecStart=/usr/bin/npx --yes paperclipai@latest run
-          Restart=on-failure
-          RestartSec=5
+    - name: Configure tinyproxy domain allowlist
+      ansible.builtin.template:
+        src: "{{ tpl_dir }}/tinyproxy-filter.j2"
+        dest: /etc/tinyproxy/filter
+        mode: '0644'
+      notify: Restart tinyproxy
 
-          [Install]
-          WantedBy=multi-user.target
-      notify: Restart paperclip
-
-    - name: Enable and start Paperclip
-      ansible.builtin.systemd:
-        name: paperclip
-        daemon_reload: true
-        state: started
-        enabled: true
-
-    - name: Wait for Paperclip API
-      ansible.builtin.uri:
-        url: "http://127.0.0.1:{{ paperclip_port }}/api/companies"
-        status_code: [200, 401, 403]
-      register: paperclip_up
-      retries: 12
-      delay: 5
-      until: paperclip_up.status is defined and paperclip_up.status != -1
-
-    # agents (this repo); apply.py needs `claude login` and the company created in onboarding
-    - name: Clone agents repo
-      ansible.builtin.git:
-        repo: "{{ paperclip_agents_repo }}"
-        dest: "{{ paperclip_agents_dir }}"
-        version: main
-        update: true
-      become_user: "{{ paperclip_user }}"
-
-    # homelab repos the agents work on (read-only HTTPS clones, no push credentials on the VM)
-    - name: Clone homelab repos into the agents working directory
-      ansible.builtin.git:
-        repo: "https://github.com/luisbrancher/{{ item }}.git"
-        dest: "{{ paperclip_agents_cwd }}/{{ item }}"
-        version: main
-        update: true
-      become_user: "{{ paperclip_user }}"
-      loop: "{{ paperclip_homelab_repos }}"
-      register: homelab_repos
-      failed_when: false
-
-    - name: Warn about repos that could not be cloned (private repos need a read-only deploy key)
-      ansible.builtin.debug:
-        msg: "Could not clone {{ item.item }}: {{ item.msg | default('unknown error') }}"
-      loop: "{{ homelab_repos.results }}"
-      when: item.failed | default(false)
-
-    # kubectl (read-only access for the SRE agent; kubeconfig is placed by hand, see README)
-    - name: Install kubectl
-      ansible.builtin.shell:
-        cmd: |
-          v=$(curl -fsSL https://dl.k8s.io/release/stable.txt)
-          curl -fsSLo /usr/local/bin/kubectl https://dl.k8s.io/release/$v/bin/linux/amd64/kubectl
-          chmod 0755 /usr/local/bin/kubectl
-        creates: /usr/local/bin/kubectl
-
-    - name: Create .kube directory
-      ansible.builtin.file:
-        path: "/home/{{ paperclip_user }}/.kube"
-        state: directory
-        owner: "{{ paperclip_user }}"
-        mode: '0700'
-
-    - name: Check for Claude Code login
-      ansible.builtin.stat:
-        path: "/home/{{ paperclip_user }}/.claude/.credentials.json"
-      register: claude_login
-
-    - name: Manual step pending (claude login)
-      ansible.builtin.debug:
-        msg: >-
-          On the VM run: sudo -iu {{ paperclip_user }} claude login
-          then create the company "{{ paperclip_company }}" in the Paperclip UI (port {{ paperclip_port }}) and re-run this playbook.
-      when: not claude_login.stat.exists
-
-    - name: Apply agent definitions
-      ansible.builtin.command:
-        cmd: python3 {{ paperclip_agents_dir }}/paperclip/apply.py
-      environment:
-        PAPERCLIP_COMPANY: "{{ paperclip_company }}"
-        AGENTS_CWD: "{{ paperclip_agents_cwd }}"
-      become_user: "{{ paperclip_user }}"
-      register: apply_agents
-      changed_when: "'hiring' in apply_agents.stdout or 'drift' in apply_agents.stdout"
-      when: claude_login.stat.exists
-
-    # monitoring
-    - name: Install Node Exporter
-      ansible.builtin.apt:
-        name: prometheus-node-exporter
-        state: present
-
-    - name: Ensure Node Exporter is running and enabled on boot
+    - name: Ensure tinyproxy is running
       ansible.builtin.service:
-        name: prometheus-node-exporter
+        name: tinyproxy
         state: started
         enabled: true
 
-    # tailscale (auth key comes from group_vars/all/vault.yml)
+    - name: Create nftables include directory
+      ansible.builtin.file:
+        path: /etc/nftables.d
+        state: directory
+        mode: '0755'
+
+    - name: Install egress filter rules
+      ansible.builtin.template:
+        src: "{{ tpl_dir }}/paperclip-egress.nft.j2"
+        dest: /etc/nftables.d/paperclip-egress.nft
+        mode: '0644'
+        validate: nft -c -f %s
+      notify: Reload paperclip-egress
+
+    - name: Install egress filter service
+      ansible.builtin.copy:
+        src: "{{ files_dir }}/paperclip-egress.service"
+        dest: /etc/systemd/system/paperclip-egress.service
+        mode: '0644'
+
+    - name: Enable egress filter
+      ansible.builtin.systemd:
+        name: paperclip-egress
+        daemon_reload: true
+        state: "{{ 'started' if paperclip_egress_filter else 'stopped' }}"
+        enabled: "{{ paperclip_egress_filter }}"
+
+    - name: Apply proxy config before anything downloads as the paperclip user
+      ansible.builtin.meta: flush_handlers
+
+    - name: Proxy env for interactive logins (sudo -iu paperclip claude login)
+      ansible.builtin.blockinfile:
+        path: "/home/{{ paperclip_user }}/.profile"
+        marker: "# {mark} ANSIBLE MANAGED: egress proxy"
+        block: |
+          {% for k, v in paperclip_env.items() %}
+          export {{ k }}="{{ v }}"
+          {% endfor %}
+        owner: "{{ paperclip_user }}"
+        mode: '0644'
+        create: true
+
+    # tailscale before Paperclip, so `onboard --bind tailnet` finds the tailnet address on the first run
+    # (auth key comes from group_vars/all/vault.yml)
     - name: Download and run Tailscale installation script
       ansible.builtin.shell:
         cmd: curl -fsSL https://tailscale.com/install.sh | sh
@@ -201,8 +129,235 @@
       no_log: true
       when: tailscale_status.rc != 0
 
+    - name: Get tailnet IPv4
+      ansible.builtin.command:
+        cmd: tailscale ip -4
+      register: tailscale_ip
+      changed_when: false
+
+    # node (NodeSource, Debian's own package is too old)
+    - name: Set up NodeSource repository
+      ansible.builtin.shell:
+        cmd: curl -fsSL https://deb.nodesource.com/setup_{{ node_major }}.x | bash -
+        creates: /etc/apt/sources.list.d/nodesource.sources
+
+    - name: Install Node.js
+      ansible.builtin.apt:
+        name: nodejs
+        state: present
+
+    # claude code CLI (used by the claude_local adapter); pinned, auto-update is off via managed settings
+    - name: Install Claude Code CLI
+      community.general.npm:
+        name: "@anthropic-ai/claude-code"
+        version: "{{ claude_code_version }}"
+        global: true
+
+    # managed settings win over user/project settings and CLI flags: deny reading credentials, curl uploads, etc.
+    - name: Create Claude Code managed settings directory
+      ansible.builtin.file:
+        path: /etc/claude-code
+        state: directory
+        mode: '0755'
+
+    - name: Install Claude Code managed settings
+      ansible.builtin.copy:
+        src: "{{ files_dir }}/claude-managed-settings.json"
+        dest: /etc/claude-code/managed-settings.json
+        mode: '0644'
+
+    # paperclip (pinned global install; the service never downloads anything at start)
+    - name: Install Paperclip
+      community.general.npm:
+        name: paperclipai
+        version: "{{ paperclip_version }}"
+        global: true
+      notify: Restart paperclip
+
+    - name: Onboard Paperclip (creates ~/.paperclip; --bind is only read here)
+      ansible.builtin.command:
+        cmd: paperclipai onboard --yes --no-install-service --bind {{ paperclip_bind }}
+        creates: "/home/{{ paperclip_user }}/.paperclip"
+      become_user: "{{ paperclip_user }}"
+      environment: "{{ paperclip_env }}"
+
+    - name: Allow extra hostnames for the UI
+      ansible.builtin.command:
+        cmd: paperclipai allowed-hostname {{ item }}
+      become_user: "{{ paperclip_user }}"
+      loop: "{{ paperclip_allowed_hostnames }}"
+      register: allowed_hostnames
+      changed_when: "'Added allowed hostname' in allowed_hostnames.stdout"
+      notify: Restart paperclip
+
+    - name: Install Paperclip systemd service
+      ansible.builtin.template:
+        src: "{{ tpl_dir }}/paperclip.service.j2"
+        dest: /etc/systemd/system/paperclip.service
+        mode: '0644'
+      notify: Restart paperclip
+
+    - name: Enable and start Paperclip
+      ansible.builtin.systemd:
+        name: paperclip
+        daemon_reload: true
+        state: started
+        enabled: true
+
+    - name: Flush handlers (restart Paperclip now if its version or config changed)
+      ansible.builtin.meta: flush_handlers
+
+    # with --bind tailnet the server listens only on the tailnet address
+    - name: Set Paperclip API URL
+      ansible.builtin.set_fact:
+        paperclip_url: "http://{{ tailscale_ip.stdout_lines[0] if paperclip_bind == 'tailnet' else '127.0.0.1' }}:{{ paperclip_port }}"
+
+    - name: Wait for Paperclip API
+      ansible.builtin.uri:
+        url: "{{ paperclip_url }}/api/companies"
+        status_code: [200, 401, 403]
+      register: paperclip_up
+      retries: 12
+      delay: 5
+      until: paperclip_up.status is defined and paperclip_up.status != -1
+
+    # agents (this repo); apply.py needs `claude login`, the company created in onboarding and a board API key
+    - name: Clone agents repo
+      ansible.builtin.git:
+        repo: "{{ paperclip_agents_repo }}"
+        dest: "{{ paperclip_agents_dir }}"
+        version: main
+        update: true
+      become_user: "{{ paperclip_user }}"
+      environment: "{{ paperclip_env }}"
+
+    # homelab repos the agents work on (read-only HTTPS clones, no push credentials on the VM)
+    - name: Clone homelab repos into the agents working directory
+      ansible.builtin.git:
+        repo: "https://github.com/luisbrancher/{{ item }}.git"
+        dest: "{{ paperclip_agents_cwd }}/{{ item }}"
+        version: main
+        update: true
+      become_user: "{{ paperclip_user }}"
+      environment: "{{ paperclip_env }}"
+      loop: "{{ paperclip_homelab_repos }}"
+      register: homelab_repos
+      failed_when: false
+
+    - name: Warn about repos that could not be cloned (private repos need a read-only deploy key)
+      ansible.builtin.debug:
+        msg: "Could not clone {{ item.item }}: {{ item.msg | default('unknown error') }}"
+      loop: "{{ homelab_repos.results }}"
+      when: item.failed | default(false)
+
+    # keep those clones current between playbook runs (agents cannot git fetch)
+    - name: Install repo pull script
+      ansible.builtin.copy:
+        src: "{{ files_dir }}/homelab-repos-pull.sh"
+        dest: /usr/local/bin/homelab-repos-pull
+        mode: '0755'
+
+    - name: Install repo pull service and timer
+      ansible.builtin.template:
+        src: "{{ tpl_dir }}/{{ item }}.j2"
+        dest: "/etc/systemd/system/{{ item }}"
+        mode: '0644'
+      loop: [homelab-repos-pull.service, homelab-repos-pull.timer]
+
+    - name: Enable repo pull timer
+      ansible.builtin.systemd:
+        name: homelab-repos-pull.timer
+        daemon_reload: true
+        state: started
+        enabled: true
+
+    # kubectl (read-only access for the SRE agent; kubeconfig is placed by hand, see README)
+    - name: Install kubectl {{ kubectl_version }}
+      ansible.builtin.get_url:
+        url: "https://dl.k8s.io/release/{{ kubectl_version }}/bin/linux/amd64/kubectl"
+        checksum: "sha256:https://dl.k8s.io/release/{{ kubectl_version }}/bin/linux/amd64/kubectl.sha256"
+        dest: /usr/local/bin/kubectl
+        mode: '0755'
+
+    - name: Create .kube directory
+      ansible.builtin.file:
+        path: "/home/{{ paperclip_user }}/.kube"
+        state: directory
+        owner: "{{ paperclip_user }}"
+        mode: '0700'
+
+    - name: Check for Claude Code login
+      ansible.builtin.stat:
+        path: "/home/{{ paperclip_user }}/.claude/.credentials.json"
+      register: claude_login
+
+    - name: Manual steps pending (claude login, company, board API key)
+      ansible.builtin.debug:
+        msg: >-
+          Pending before apply.py runs:
+          {{ '' if claude_login.stat.exists else '[claude login: sudo -iu ' ~ paperclip_user ~ ' claude login] ' }}
+          {{ '' if paperclip_board_api_key is defined else '[paperclip_board_api_key in group_vars/all/vault.yml] ' }}
+          and the company "{{ paperclip_company }}" created in the Paperclip UI ({{ paperclip_url }}). Then re-run this playbook.
+      when: not claude_login.stat.exists or paperclip_board_api_key is not defined
+
+    - name: Apply agent definitions
+      ansible.builtin.command:
+        cmd: python3 {{ paperclip_agents_dir }}/paperclip/apply.py
+      environment:
+        PAPERCLIP_URL: "{{ paperclip_url }}"
+        PAPERCLIP_API_KEY: "{{ paperclip_board_api_key }}"
+        PAPERCLIP_COMPANY: "{{ paperclip_company }}"
+        AGENTS_CWD: "{{ paperclip_agents_cwd }}"
+      become_user: "{{ paperclip_user }}"
+      register: apply_agents
+      changed_when: "'hiring' in apply_agents.stdout or 'drift' in apply_agents.stdout"
+      when: claude_login.stat.exists and paperclip_board_api_key is defined
+
+    - name: Show apply.py output
+      ansible.builtin.debug:
+        var: apply_agents.stdout_lines
+      when: apply_agents.stdout_lines is defined
+
+    # monitoring (systemd collector so Prometheus can alert on paperclip.service being down)
+    - name: Install Node Exporter
+      ansible.builtin.apt:
+        name: prometheus-node-exporter
+        state: present
+
+    - name: Enable the systemd collector for the Paperclip units
+      ansible.builtin.lineinfile:
+        path: /etc/default/prometheus-node-exporter
+        regexp: '^ARGS='
+        line: >-
+          ARGS="--collector.systemd
+          --collector.systemd.unit-include=(paperclip|paperclip-egress|tinyproxy|tailscaled|homelab-repos-pull)\.(service|timer)"
+      notify: Restart node exporter
+
+    - name: Ensure Node Exporter is running and enabled on boot
+      ansible.builtin.service:
+        name: prometheus-node-exporter
+        state: started
+        enabled: true
+
   handlers:
+    - name: Restart tinyproxy
+      ansible.builtin.service:
+        name: tinyproxy
+        state: restarted
+
+    - name: Reload paperclip-egress
+      ansible.builtin.systemd:
+        name: paperclip-egress
+        state: reloaded
+      when: paperclip_egress_filter
+
     - name: Restart paperclip
       ansible.builtin.systemd:
         name: paperclip
+        daemon_reload: true
+        state: restarted
+
+    - name: Restart node exporter
+      ansible.builtin.service:
+        name: prometheus-node-exporter
         state: restarted
