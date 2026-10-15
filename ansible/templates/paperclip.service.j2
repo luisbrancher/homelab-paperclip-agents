@@ -1,0 +1,17 @@
+[Unit]
+Description=Paperclip
+After=network-online.target tailscaled.service paperclip-egress.service tinyproxy.service
+Wants=network-online.target
+
+[Service]
+User={{ paperclip_user }}
+WorkingDirectory=/home/{{ paperclip_user }}
+{% for k, v in paperclip_env.items() %}
+Environment="{{ k }}={{ v }}"
+{% endfor %}
+ExecStart=/usr/bin/paperclipai run
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

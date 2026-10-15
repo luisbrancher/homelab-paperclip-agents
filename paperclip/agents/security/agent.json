@@ -4,7 +4,7 @@
   "title": "Security",
   "icon": "shield",
   "capabilities": "Audits exposure, firewall/VLAN rules, certificates and image CVEs",
-  "reports_to_coordinator": true,
+  "reports_to_chief_of_staff": true,
   "adapter": {
     "model": "claude-sonnet-5-5",
     "maxTurnsPerRun": 40,

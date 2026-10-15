@@ -4,7 +4,7 @@
   "title": "SRE / Storage",
   "icon": "eye",
   "capabilities": "Diagnoses incidents and checks k3s, observability, storage and backups (read-only)",
-  "reports_to_coordinator": true,
+  "reports_to_chief_of_staff": true,
   "adapter": {
     "model": "claude-sonnet-5-5",
     "maxTurnsPerRun": 40,

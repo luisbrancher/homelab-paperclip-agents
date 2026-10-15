@@ -1,0 +1,18 @@
+#!/usr/sbin/nft -f
+# Managed by Ansible. Egress filter for the {{ paperclip_user }} user (Paperclip + agents).
+# Other users (root, tinyproxy, tailscaled) are untouched. Internet access goes through tinyproxy on loopback.
+table inet paperclip_egress
+delete table inet paperclip_egress
+
+table inet paperclip_egress {
+  chain output {
+    type filter hook output priority filter; policy accept;
+    meta skuid != "{{ paperclip_user }}" accept
+    ct state established,related accept
+    oifname "lo" accept
+    ip daddr { {{ paperclip_egress_cidrs | join(', ') }} } accept
+    meta l4proto { tcp, udp } th dport 53 accept
+    limit rate 6/minute log prefix "paperclip-egress drop: "
+    reject
+  }
+}

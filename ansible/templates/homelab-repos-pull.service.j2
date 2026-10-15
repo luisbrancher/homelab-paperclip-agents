@@ -1,0 +1,12 @@
+[Unit]
+Description=Fast-forward the homelab repos the Paperclip agents read
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User={{ paperclip_user }}
+{% for k, v in paperclip_env.items() %}
+Environment="{{ k }}={{ v }}"
+{% endfor %}
+ExecStart=/usr/local/bin/homelab-repos-pull {{ paperclip_agents_cwd }}
